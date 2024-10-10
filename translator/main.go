@@ -27,6 +27,19 @@ var (
 	)
 )
 
+func init() {
+	flag.StringVar(langFrom, "f", "en", "The source language (alternative to --from)")
+	flag.StringVar(langTo, "t", "fa", "The target language (alternative to --to)")
+	flag.StringVar(inputText, "x", "", "Text to translate (alternative to --text)")
+	flag.StringVar(filePath, "p", "", "File path to translate (alternative to --path)")
+	flag.BoolVar(
+		isSubtitleFile,
+		"s",
+		false,
+		"If your file is a video subtitle, provide this option as true (alternative to --sub)",
+	)
+}
+
 type API interface {
 	GetAPIUrl() string
 }
@@ -53,12 +66,8 @@ func (gt *GoogleTranslator) GetAPIUrl() string {
 }
 
 func main() {
-	// flag.StringVar(text, "f", "", "The source language (alternative to -from)")
-	// flag.StringVar(text, "t", "", "The target language (alternative to -to)")
-	// flag.StringVar(text, "t", "", "Text to translate (alternative to -text)")
-	// flag.StringVar(text, "p", "", "File path to translate (alternative to -path)")
-
 	flag.Parse()
+
 	isDirectTextInput := len(*inputText) > 0
 	// User provide direct text to translate
 	if isDirectTextInput {
