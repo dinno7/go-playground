@@ -16,10 +16,15 @@ import (
 )
 
 var (
-	langFrom  *string = flag.String("from", "en", "The source language")
-	langTo    *string = flag.String("to", "fa", "The target language")
-	inputText *string = flag.String("text", "", "Text to translate")
-	filePath  *string = flag.String("path", "", "File path to translate")
+	langFrom       *string = flag.String("from", "en", "The source language")
+	langTo         *string = flag.String("to", "fa", "The target language")
+	inputText      *string = flag.String("text", "", "Text to translate")
+	filePath       *string = flag.String("path", "", "File path to translate")
+	isSubtitleFile *bool   = flag.Bool(
+		"sub",
+		false,
+		"If your file is a video subtitle, provide this option as true",
+	)
 )
 
 type API interface {
@@ -119,6 +124,22 @@ func main() {
 				}
 				var meaning string
 
+				if *isSubtitleFile {
+					// More comprehensive regex for various timestamp formats
+					isLineTimecode := regexp.MustCompile(
+						`^\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}`,
+					).MatchString(text)
+					// Regex for subtitle numbers (allowing for non-sequential numbering)
+					isLineSubtitleNumber := regexp.MustCompile(`^\d+$`).MatchString(text)
+
+					if isLineTimecode || isLineSubtitleNumber {
+						meaning = text
+					} else {
+						meaning, _ = getMeaning(&googleTranslator)
+					}
+				} else {
+					meaning, _ = getMeaning(&googleTranslator)
+				}
 				ch <- fileTexts{
 					line: lineNum,
 					text: meaning,
