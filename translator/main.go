@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 )
@@ -91,7 +93,8 @@ func main() {
 	fileReader := bufio.NewReader(file)
 	lineNum := 0
 	for {
-		line, isPrefix, err := fileReader.ReadLine()
+		l, isPrefix, err := fileReader.ReadLine()
+		line := strings.TrimSpace(string(l))
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -105,8 +108,7 @@ func main() {
 		}
 
 		// Do processes
-		if len(string(line)) > 1 {
-			text := string(line)
+		if line != "" {
 			wg.Add(1)
 			go func(text string, lineNum int, ch chan fileTexts) {
 				defer wg.Done()
@@ -116,13 +118,12 @@ func main() {
 					text: text,
 				}
 				var meaning string
-				meaning, _ = getMeaning(&googleTranslator)
 
 				ch <- fileTexts{
 					line: lineNum,
 					text: meaning,
 				}
-			}(text, lineNum, meaningChannel)
+			}(line, lineNum, meaningChannel)
 		}
 
 		lineNum++
@@ -134,8 +135,42 @@ func main() {
 		close(meaningChannel)
 	}()
 
+	meaningMap := make(map[int]string)
+	maxLine := 0
 	for s := range meaningChannel {
-		fmt.Println("💀 s > ", s)
+		meaningMap[s.line] = s.text
+		if s.line > maxLine {
+			maxLine = s.line
+		}
+	}
+
+	translatedFileName := file.Name()
+	translatedFileName = filepath.Base(translatedFileName)
+
+	translatedFileExt := filepath.Ext(translatedFileName)
+
+	translatedFileName = strings.TrimSuffix(translatedFileName, translatedFileExt)
+	translatedFileName = fmt.Sprintf("%s_%s%s", translatedFileName, *langTo, translatedFileExt)
+
+	translatedFile, err := os.Create(translatedFileName)
+	if err != nil {
+		panic(err)
+	}
+	defer translatedFile.Close()
+
+	for i := 0; i <= maxLine; i++ {
+		if meaningText, exist := meaningMap[i]; exist {
+			_, err := translatedFile.WriteString(meaningText + "\n")
+			if err != nil {
+				panic(fmt.Errorf("error writing to file: %w", err))
+			}
+		} else {
+			// Write an empty line if no text exists for this line number
+			_, err := translatedFile.WriteString("\n")
+			if err != nil {
+				panic(fmt.Errorf("error writing to file: %w", err))
+			}
+		}
 	}
 }
 
