@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 )
 
 var (
@@ -51,23 +53,12 @@ func main() {
 
 	flag.Parse()
 	isDirectTextInput := len(*inputText) > 0
-	var text string
-	if isDirectTextInput {
-		text = *inputText
-	} else if len(*filePath) > 0 {
-		fileText, err := os.ReadFile(*filePath)
-		if err != nil {
-			panic(err)
-		}
-		text = string(fileText)
-	}
-
 	// User provide direct text to translate
 	if isDirectTextInput {
 		googleTranslator := GoogleTranslator{
 			from: *langFrom,
 			to:   *langTo,
-			text: text,
+			text: *inputText,
 		}
 		meaning, err := getMeaning(&googleTranslator)
 		if err != nil {
@@ -76,6 +67,75 @@ func main() {
 
 		fmt.Println("💀 > ", meaning)
 		return
+	}
+	// ---------------------------
+	if len(*filePath) <= 0 {
+		panic("Please provide file path or direct text to translate")
+	}
+	// User provide the file path
+	file, err := os.Open(*filePath)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer file.Close()
+
+	type fileTexts struct {
+		line int
+		text string
+	}
+
+	meaningChannel := make(chan fileTexts)
+	var wg sync.WaitGroup
+
+	fileReader := bufio.NewReader(file)
+	lineNum := 0
+	for {
+		line, isPrefix, err := fileReader.ReadLine()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			fmt.Println(err)
+			break
+		}
+		if isPrefix {
+			fmt.Println("Line too long")
+			break
+		}
+
+		// Do processes
+		if len(string(line)) > 1 {
+			text := string(line)
+			wg.Add(1)
+			go func(text string, lineNum int, ch chan fileTexts) {
+				defer wg.Done()
+				googleTranslator := GoogleTranslator{
+					from: *langFrom,
+					to:   *langTo,
+					text: text,
+				}
+				var meaning string
+				meaning, _ = getMeaning(&googleTranslator)
+
+				ch <- fileTexts{
+					line: lineNum,
+					text: meaning,
+				}
+			}(text, lineNum, meaningChannel)
+		}
+
+		lineNum++
+	}
+
+	// Close channel after end
+	go func() {
+		wg.Wait()
+		close(meaningChannel)
+	}()
+
+	for s := range meaningChannel {
+		fmt.Println("💀 s > ", s)
 	}
 }
 
