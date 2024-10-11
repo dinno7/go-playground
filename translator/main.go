@@ -2,15 +2,10 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 )
@@ -40,29 +35,9 @@ func init() {
 	)
 }
 
-type API interface {
-	GetAPIUrl() string
-}
-type GoogleTranslator struct {
-	from string
-	to   string
-	text string // The input text
-}
-
-func (gt *GoogleTranslator) GetAPIUrl() string {
-	URL := url.URL{
-		Scheme:   "https",
-		Host:     "translate.googleapis.com",
-		Path:     "/translate_a/single",
-		RawQuery: "client=gtx&dt=t",
-	}
-	q := URL.Query()
-	q.Add("sl", gt.from)
-	q.Add("tl", gt.to)
-	q.Add("q", gt.text)
-	URL.RawQuery = q.Encode()
-
-	return URL.String()
+type fileTexts struct {
+	line int
+	text string
 }
 
 func main() {
@@ -71,17 +46,7 @@ func main() {
 	isDirectTextInput := len(*inputText) > 0
 	// User provide direct text to translate
 	if isDirectTextInput {
-		googleTranslator := GoogleTranslator{
-			from: *langFrom,
-			to:   *langTo,
-			text: *inputText,
-		}
-		meaning, err := getMeaning(&googleTranslator)
-		if err != nil {
-			panic(err)
-		}
-
-		fmt.Println("💀 > ", meaning)
+		fmt.Println("💀 > ", getDirectTextMeaning(*langFrom, *langTo, *inputText))
 		return
 	}
 	// ---------------------------
@@ -96,14 +61,8 @@ func main() {
 	}
 	defer file.Close()
 
-	type fileTexts struct {
-		line int
-		text string
-	}
-
 	meaningChannel := make(chan fileTexts)
-	var wg sync.WaitGroup
-
+	wg := &sync.WaitGroup{}
 	fileReader := bufio.NewReader(file)
 	lineNum := 0
 	for {
@@ -124,36 +83,7 @@ func main() {
 		// Do processes
 		if line != "" {
 			wg.Add(1)
-			go func(text string, lineNum int, ch chan fileTexts) {
-				defer wg.Done()
-				googleTranslator := GoogleTranslator{
-					from: *langFrom,
-					to:   *langTo,
-					text: text,
-				}
-				var meaning string
-
-				if *isSubtitleFile {
-					// More comprehensive regex for various timestamp formats
-					isLineTimecode := regexp.MustCompile(
-						`^\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}\s*-->\s*\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}`,
-					).MatchString(text)
-					// Regex for subtitle numbers (allowing for non-sequential numbering)
-					isLineSubtitleNumber := regexp.MustCompile(`^\d+$`).MatchString(text)
-
-					if isLineTimecode || isLineSubtitleNumber {
-						meaning = text
-					} else {
-						meaning, _ = getMeaning(&googleTranslator)
-					}
-				} else {
-					meaning, _ = getMeaning(&googleTranslator)
-				}
-				ch <- fileTexts{
-					line: lineNum,
-					text: meaning,
-				}
-			}(line, lineNum, meaningChannel)
+			go translateWithChannel(line, lineNum, meaningChannel, wg)
 		}
 
 		lineNum++
@@ -174,15 +104,7 @@ func main() {
 		}
 	}
 
-	translatedFileName := file.Name()
-	translatedFileName = filepath.Base(translatedFileName)
-
-	translatedFileExt := filepath.Ext(translatedFileName)
-
-	translatedFileName = strings.TrimSuffix(translatedFileName, translatedFileExt)
-	translatedFileName = fmt.Sprintf("%s_%s%s", translatedFileName, *langTo, translatedFileExt)
-
-	translatedFile, err := os.Create(translatedFileName)
+	translatedFile, err := os.Create(getTranslatedFileDest(file))
 	if err != nil {
 		panic(err)
 	}
@@ -202,25 +124,4 @@ func main() {
 			}
 		}
 	}
-}
-
-func getMeaning(api API) (string, error) {
-	extractMeaning := func(data string) string {
-		meaning := strings.Split(data, ",")[0]
-		meaning = strings.Trim(meaning, " \"[")
-		return meaning
-	}
-
-	res, err := http.Get(api.GetAPIUrl())
-	if err != nil {
-		return "", errors.New("💀 Something went wrong while translating from API")
-	}
-	defer res.Body.Close()
-
-	b, err := io.ReadAll(res.Body)
-	if err != nil {
-		return "", err
-	}
-
-	return extractMeaning(string(b)), nil
 }

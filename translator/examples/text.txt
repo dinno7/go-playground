@@ -1,0 +1,12 @@
+Hello how are you?
+
+My name is Taha Delroba and i am a developer.
+
+Nice to meet you
+
+In this tutorial we learn how use go to develop a translator app
+
+
+
+
+Hello guys
